@@ -1,0 +1,81 @@
+
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+:root {
+  font-family: var(--font-body);
+  color: #20231e;
+  background: #f5f4ed;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --paper: #f5f4ed;
+  --surface: #fffef9;
+  --ink: #20231e;
+  --muted: #85877d;
+  --line: #dfdfd5;
+  --acid: #d5f36a;
+  --orange: #e97b50;
+  --green: #72872d;
+  --font-display: "Manrope", sans-serif;
+  --font-body: "DM Sans", sans-serif;
+  --font-mono: "DM Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+body,
+button,
+input,
+select {
+  font-family: "DM Sans", sans-serif;
+}
+
+button,
+input,
+select {
+  font-size: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #72872d;
+  outline-offset: 3px;
+}
+
+::selection {
+  color: var(--ink);
+  background: var(--acid);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+#root {
+  min-height: 100vh;
+}
