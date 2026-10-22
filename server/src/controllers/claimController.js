@@ -1,37 +1,23 @@
 
 const prisma = require("../utils/prisma");
 
-// Submit a claim for a lost or found item
 const createClaim = async (req, res) => {
   try {
     const { itemId } = req.params;
-    console.log("Content-Type:", req.headers["content-type"]);
-console.log("Received body:", req.body);
-
-    // Safely read the request body
     const message = req.body?.message;
 
-    if (typeof message !== "string" || !message.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a message explaining your claim.",
-      });
-    }
-
-    if (message.trim().length < 10) {
+    if (typeof message !== "string" || message.trim().length < 10) {
       return res.status(400).json({
         success: false,
         message: "Your claim message must be at least 10 characters long.",
       });
     }
 
-    // Find the item being claimed
     const item = await prisma.item.findUnique({
       where: { id: itemId },
       select: {
         id: true,
         title: true,
-        type: true,
         userId: true,
         status: true,
       },
@@ -44,7 +30,6 @@ console.log("Received body:", req.body);
       });
     }
 
-    // Prevent users from claiming their own listings
     if (item.userId === req.userId) {
       return res.status(403).json({
         success: false,
@@ -52,7 +37,6 @@ console.log("Received body:", req.body);
       });
     }
 
-    // Only open listings can receive claims
     if (item.status !== "OPEN") {
       return res.status(400).json({
         success: false,
@@ -60,28 +44,34 @@ console.log("Received body:", req.body);
       });
     }
 
-    // Create the claim
-    const claim = await prisma.claim.create({
-      data: {
-        message: message.trim(),
-        itemId: item.id,
-        claimantId: req.userId,
-      },
-      include: {
-        claimant: {
-          select: {
-            id: true,
-            name: true,
+    const claim = await prisma.$transaction(async (tx) => {
+      const newClaim = await tx.claim.create({
+        data: {
+          message: message.trim(),
+          itemId: item.id,
+          claimantId: req.userId,
+        },
+        include: {
+          claimant: {
+            select: { id: true, name: true },
+          },
+          item: {
+            select: { id: true, title: true, type: true },
           },
         },
-        item: {
-          select: {
-            id: true,
-            title: true,
-            type: true,
-          },
+      });
+
+      await tx.notification.create({
+        data: {
+          title: "New claim received",
+          message: `${newClaim.claimant.name} submitted a claim for "${item.title}".`,
+          type: "CLAIM_RECEIVED",
+          userId: item.userId,
+          itemId: item.id,
         },
-      },
+      });
+
+      return newClaim;
     });
 
     return res.status(201).json({
@@ -90,7 +80,6 @@ console.log("Received body:", req.body);
       claim,
     });
   } catch (error) {
-    // Prevent duplicate claims for the same item
     if (error.code === "P2002") {
       return res.status(409).json({
         success: false,
@@ -107,17 +96,13 @@ console.log("Received body:", req.body);
   }
 };
 
-// Get claims submitted for an item (listing owner only)
 const getItemClaims = async (req, res) => {
   try {
     const { itemId } = req.params;
 
     const item = await prisma.item.findUnique({
       where: { id: itemId },
-      select: {
-        id: true,
-        userId: true,
-      },
+      select: { id: true, userId: true },
     });
 
     if (!item) {
@@ -138,15 +123,10 @@ const getItemClaims = async (req, res) => {
       where: { itemId },
       include: {
         claimant: {
-          select: {
-            id: true,
-            name: true,
-          },
+          select: { id: true, name: true },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
     return res.status(200).json({
@@ -199,7 +179,6 @@ const reviewClaim = async (req, res) => {
         };
       }
 
-      // Only the listing owner can review claims.
       if (claim.item.userId !== req.userId) {
         return {
           error: true,
@@ -224,7 +203,6 @@ const reviewClaim = async (req, res) => {
         };
       }
 
-      // Update the selected claim.
       const updatedClaim = await tx.claim.update({
         where: { id: claimId },
         data: { status },
@@ -233,28 +211,66 @@ const reviewClaim = async (req, res) => {
             select: { id: true, name: true },
           },
           item: {
-            select: { id: true, title: true, type: true, status: true },
+            select: {
+              id: true,
+              title: true,
+              type: true,
+              status: true,
+            },
           },
         },
       });
 
       if (status === "APPROVED") {
-        // Mark the item as claimed.
         await tx.item.update({
           where: { id: itemId },
           data: { status: "CLAIMED" },
         });
 
-        // Reject other pending claims for the same item.
-        await tx.claim.updateMany({
+        // Notify every other claimant whose pending claim is rejected.
+        const otherClaims = await tx.claim.findMany({
           where: {
             itemId,
             id: { not: claimId },
             status: "PENDING",
           },
-          data: { status: "REJECTED" },
+          select: {
+            id: true,
+            claimantId: true,
+          },
         });
+
+        for (const otherClaim of otherClaims) {
+          await tx.claim.update({
+            where: { id: otherClaim.id },
+            data: { status: "REJECTED" },
+          });
+
+          await tx.notification.create({
+            data: {
+              title: "Claim not approved",
+              message: `Your claim for "${claim.item.title}" was not approved because another claim was accepted.`,
+              type: "CLAIM_REJECTED",
+              userId: otherClaim.claimantId,
+              itemId,
+            },
+          });
+        }
       }
+
+      const approved = status === "APPROVED";
+
+      await tx.notification.create({
+        data: {
+          title: approved ? "Claim approved" : "Claim rejected",
+          message: approved
+            ? `Your claim for "${claim.item.title}" has been approved.`
+            : `Your claim for "${claim.item.title}" has been rejected.`,
+          type: approved ? "CLAIM_APPROVED" : "CLAIM_REJECTED",
+          userId: claim.claimantId,
+          itemId,
+        },
+      });
 
       return { claim: updatedClaim };
     });
