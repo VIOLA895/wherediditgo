@@ -1,0 +1,160 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ItemType {
+  LOST
+  FOUND
+}
+
+enum ItemCategory {
+  ELECTRONICS
+  CLOTHING
+  BAGS
+  DOCUMENTS
+  JEWELRY
+  KEYS
+  PETS
+  BOOKS
+  ACCESSORIES
+  OTHER
+}
+
+enum ItemStatus {
+  OPEN
+  CLAIMED
+  RESOLVED
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NotificationType {
+  CLAIM_RECEIVED
+  CLAIM_APPROVED
+  CLAIM_REJECTED
+  ITEM_MATCH
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+model User {
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  passwordHash     String
+  phone            String?
+  items            Item[]
+  claims           Claim[]
+  notifications    Notification[]
+  transactions     Transaction[]
+  statementImports StatementImport[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([name])
+}
+
+model Item {
+  id            String         @id @default(cuid())
+  title         String
+  description   String         @db.Text
+  type          ItemType
+  category      ItemCategory   @default(OTHER)
+  status        ItemStatus     @default(OPEN)
+  location      String
+  dateOccurred  DateTime?
+  imageUrl      String?
+  contactInfo   String?
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claims        Claim[]
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([type, status])
+  @@index([category])
+  @@index([location])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Claim {
+  id         String      @id @default(cuid())
+  message    String      @db.Text
+  status     ClaimStatus @default(PENDING)
+  itemId     String
+  claimantId String
+  item       Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  claimant   User        @relation(fields: [claimantId], references: [id], onDelete: Cascade)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([itemId, claimantId])
+  @@index([status])
+  @@index([claimantId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  title     String
+  message   String           @db.Text
+  type      NotificationType
+  readAt    DateTime?
+  userId    String
+  itemId    String?
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item      Item?            @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+}
+
+model StatementImport {
+  id           String        @id @default(cuid())
+  fileName     String
+  totalRows    Int           @default(0)
+  importedRows Int           @default(0)
+  skippedRows  Int           @default(0)
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Transaction {
+  id                String            @id @default(cuid())
+  date              DateTime
+  description       String            @db.Text
+  amount            Decimal           @db.Decimal(14, 2)
+  type              TransactionType
+  category          String            @default("Uncategorized")
+  merchant          String?
+  fingerprint       String
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  importId          String?
+  statementImport   StatementImport?  @relation(fields: [importId], references: [id], onDelete: SetNull)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([userId, fingerprint])
+  @@index([userId, date])
+  @@index([userId, type, date])
+  @@index([importId])
+}
